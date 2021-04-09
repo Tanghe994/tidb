@@ -162,28 +162,29 @@ func newClientConn(s *Server) *clientConn {
 
 // clientConn represents a connection between server and client, it maintains connection specific state,
 // handles client query.
+/*维持和处理server和client之间的状态，并处理相关的查询*/
 type clientConn struct {
 	pkt          *packetIO         // a helper to read and write data in packet format.
-	bufReadConn  *bufferedReadConn // a buffered-read net.Conn or buffered-read tls.Conn.
+	bufReadConn  *bufferedReadConn // a buffered-read net.Conn or buffered-read tls.Conn. 缓冲读取conn
 	tlsConn      *tls.Conn         // TLS connection, nil if not TLS.
 	server       *Server           // a reference of server instance.
 	capability   uint32            // client capability affects the way server handles client request.
-	connectionID uint64            // atomically allocated by a global variable, unique in process scope.
+	connectionID uint64            // atomically allocated by a global variable, unique in process scope.全局connID
 	user         string            // user of the client.
 	dbname       string            // default database name.
-	salt         []byte            // random bytes used for authentication.
-	alloc        arena.Allocator   // an memory allocator for reducing memory allocation.
-	lastPacket   []byte            // latest sql query string, currently used for logging error.
-	ctx          *TiDBContext      // an interface to execute sql statements.
-	attrs        map[string]string // attributes parsed from client handshake response, not used for now.
+	salt         []byte            // random bytes used for authentication. 用于认证的随机字节
+	alloc        arena.Allocator   // an memory allocator for reducing memory allocation./*用于减少内存分配的内存分配器*/
+	lastPacket   []byte            // latest sql query string, currently used for logging error. 最新的sql查询字符串，当前用于记录错误。
+	ctx          *TiDBContext      // an interface to execute sql statements.	！！！执行sql语句的接口
+	attrs        map[string]string // attributes parsed from client handshake response, not used for now.从客户端握手响应解析的属性，暂时不使用。
 	peerHost     string            // peer host
 	peerPort     string            // peer port
-	status       int32             // dispatching/reading/shutdown/waitshutdown
+	status       int32             // dispatching/reading/shutdown/waitshutdown 分派、读、关机、等待关机
 	lastCode     uint16            // last error code
-	collation    uint8             // collation used by client, may be different from the collation used by database.
+	collation    uint8             // collation used by client, may be different from the collation used by database. 客户端的排序规则
 	lastActive   time.Time
 
-	// mu is used for cancelling the execution of current transaction.
+	// mu is used for cancelling the execution of current transaction. 用于取消当前事务的执行
 	mu struct {
 		sync.RWMutex
 		cancelFunc context.CancelFunc
@@ -234,7 +235,7 @@ func (cc *clientConn) authSwitchRequest(ctx context.Context) ([]byte, error) {
 
 // handshake works like TCP handshake, but in a higher level, it first writes initial packet to client,
 // during handshake, client and server negotiate compatible features and do authentication.
-// After handshake, client can send sql query to server.
+// After handshake, client can send sql query to server.处理tcp握手协议
 func (cc *clientConn) handshake(ctx context.Context) error {
 	if err := cc.writeInitialHandshake(ctx); err != nil {
 		if errors.Cause(err) == io.EOF {
@@ -723,12 +724,14 @@ func (cc *clientConn) PeerHost(hasPassword string) (host, port string, err error
 }
 
 // Run reads client query and writes query result to client in for loop, if there is a panic during query handling,
+/*读取客户端查询，并将查询结果写入for循环中*/
 // it will be recovered and log the panic error.
 // This function returns and the connection is closed if there is an IO error or there is a panic.
 func (cc *clientConn) Run(ctx context.Context) {
 	const size = 4096
 	defer func() {
 		r := recover()
+		/*run 循环出现错误*/
 		if r != nil {
 			buf := make([]byte, size)
 			stackSize := runtime.Stack(buf, false)
@@ -749,9 +752,9 @@ func (cc *clientConn) Run(ctx context.Context) {
 	}()
 	// Usually, client connection status changes between [dispatching] <=> [reading].
 	// When some event happens, server may notify this client connection by setting
-	// the status to special values, for example: kill or graceful shutdown.
+	// the status to special values, for example: kill or graceful shutdown./*通过特殊值更改状态*/
 	// The client connection would detect the events when it fails to change status
-	// by CAS operation, it would then take some actions accordingly.
+	// by CAS operation, it would then take some actions accordingly./*如果无法更改状态，则启动CAS来操作*/
 	for {
 		if !atomic.CompareAndSwapInt32(&cc.status, connStatusDispatching, connStatusReading) ||
 			// The judge below will not be hit by all means,
@@ -765,7 +768,9 @@ func (cc *clientConn) Run(ctx context.Context) {
 		waitTimeout := cc.getSessionVarsWaitTimeout(ctx)
 		cc.pkt.setReadTimeout(time.Duration(waitTimeout) * time.Second)
 		start := time.Now()
+		/*！！！不断的获取数据包字节*/
 		data, err := cc.readPacket()
+		/*读取失败的处理*/
 		if err != nil {
 			if terror.ErrorNotEqual(err, io.EOF) {
 				if netErr, isNetErr := errors.Cause(err).(net.Error); isNetErr && netErr.Timeout() {
@@ -792,6 +797,8 @@ func (cc *clientConn) Run(ctx context.Context) {
 		}
 
 		startTime := time.Now()
+
+		/*调用dispatch处理收到的请求*/
 		if err = cc.dispatch(ctx, data); err != nil {
 			if terror.ErrorEqual(err, io.EOF) {
 				cc.addMetrics(data[0], startTime, nil)
@@ -820,6 +827,7 @@ func (cc *clientConn) Run(ctx context.Context) {
 			err1 := cc.writeError(ctx, err)
 			terror.Log(err1)
 		}
+		/*添加参数指标*/
 		cc.addMetrics(data[0], startTime, err)
 		cc.pkt.sequence = 0
 	}
@@ -927,11 +935,13 @@ func (cc *clientConn) addMetrics(cmd byte, startTime time.Time, err error) {
 }
 
 // dispatch handles client request based on command which is the first byte of the data.
+/*通过第一个数据来判定操作的类型，然后处理client的请求*/
 // It also gets a token from server which is used to limit the concurrently handling clients.
 // The most frequently used command is ComQuery.
 func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 	defer func() {
 		// reset killed for each request
+		/*程序结束进行request的清空*/
 		atomic.StoreUint32(&cc.ctx.GetSessionVars().Killed, 0)
 	}()
 	t := time.Now()
@@ -943,6 +953,7 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 
 	span := opentracing.StartSpan("server.dispatch")
 	cfg := config.GetGlobalConfig()
+	/*查看启用状态*/
 	if cfg.OpenTracing.Enable {
 		ctx = opentracing.ContextWithSpan(ctx, span)
 	}
@@ -954,7 +965,9 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 	cc.mu.Unlock()
 
 	cc.lastPacket = data
+	/*获取数据包的操作类型 command type*/
 	cmd := data[0]
+	/*获取操作，sql语句*/
 	data = data[1:]
 	if variable.EnablePProfSQLCPU.Load() {
 		label := getLastStmtInConn{cc}.PProfLabel()
@@ -964,6 +977,7 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 			pprof.SetGoroutineLabels(ctx)
 		}
 	}
+	/*查看是否启动了追踪*/
 	if trace.IsEnabled() {
 		lc := getLastStmtInConn{cc}
 		sqlType := lc.PProfLabel()
@@ -980,6 +994,7 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 			pprof.SetGoroutineLabels(ctx)
 		}
 	}
+	/*获得Token*/
 	token := cc.server.getToken()
 	defer func() {
 		// if handleChangeUser failed, cc.ctx may be nil
@@ -1010,64 +1025,105 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 
 	switch cmd {
 	case mysql.ComSleep:
-		// TODO: According to mysql document, this command is supposed to be used only internally.
+		// TODO: According to mysql document, this command is supposed to be used only internally. 仅供内部使用
 		// So it's just a temp fix, not sure if it's done right.
 		// Investigate this command and write test case later.
 		return nil
+
 	case mysql.ComQuit:
+		/*0x01 tells the server that the client wants to close the connection*/
 		return io.EOF
+
 	case mysql.ComInitDB:
+		/*0x02 change the default schema of the connection*/
+		/*切换数据库或者schema*/
 		if err := cc.useDB(ctx, dataStr); err != nil {
 			return err
 		}
 		return cc.writeOK(ctx)
+
 	case mysql.ComQuery: // Most frequently used command.
 		// For issue 1989
 		// Input payload may end with byte '\0', we didn't find related mysql document about it, but mysql
 		// implementation accept that case. So trim the last '\0' here as if the payload an EOF string.
 		// See http://dev.mysql.com/doc/internals/en/com-query.html
+		/*0x03  is used to send the server a text-based query that is executed immediately.*/
 		if len(data) > 0 && data[len(data)-1] == 0 {
+			/*去掉最后一个空包*/
 			data = data[:len(data)-1]
 			dataStr = string(hack.String(data))
 		}
+		/*！！！sql query的处理语句*/
 		return cc.handleQuery(ctx, dataStr)
+
 	case mysql.ComFieldList:
+		/*0x04 get the column definitions of a table*/
 		return cc.handleFieldList(ctx, dataStr)
-	// ComCreateDB, ComDropDB
+
+	// TODO ComCreateDB, ComDropDB
+
 	case mysql.ComRefresh:
+		/*0x07 Call REFRESH or FLUSH statements*/
 		return cc.handleRefresh(ctx, data[0])
+
 	case mysql.ComShutdown: // redirect to SQL
+		/*0x08 shut down the server*/
 		if err := cc.handleQuery(ctx, "SHUTDOWN"); err != nil {
 			return err
 		}
 		return cc.writeOK(ctx)
+
 	case mysql.ComStatistics:
+		/*0x09 get a list of active threads*/
 		return cc.writeStats(ctx)
-	// ComProcessInfo, ComConnect, ComProcessKill, ComDebug
+
+	// TODO ComProcessInfo, ComConnect, ComProcessKill, ComDebug
+
 	case mysql.ComPing:
+		/*0x0e check if the server is alive*/
 		return cc.writeOK(ctx)
-	// ComTime, ComDelayedInsert
+
+	// TODO ComTime, ComDelayedInsert
+
 	case mysql.ComChangeUser:
+		/*0x11 change the user of the current connection*/
 		return cc.handleChangeUser(ctx, data)
-	// ComBinlogDump, ComTableDump, ComConnectOut, ComRegisterSlave
+
+	// TODO ComBinlogDump, ComTableDump, ComConnectOut, ComRegisterSlave
+
 	case mysql.ComStmtPrepare:
+		/*创建一个准备好的语句 0x16 */
 		return cc.handleStmtPrepare(ctx, dataStr)
+
 	case mysql.ComStmtExecute:
+		/*0x17 asks the server to execute a prepared statement as identified by stmt-id.*/
 		return cc.handleStmtExecute(ctx, data)
+
 	case mysql.ComStmtSendLongData:
+		/*发送长数据 0x18*/
 		return cc.handleStmtSendLongData(data)
+
 	case mysql.ComStmtClose:
+		/*0x19 deallocates a prepared statement*/
 		return cc.handleStmtClose(data)
+
 	case mysql.ComStmtReset:
+		/*0x1a reset data*/
 		return cc.handleStmtReset(ctx, data)
+
 	case mysql.ComSetOption:
+		/*0x1b Enables capabilities for the current connection to be enabled and disabled*/
 		return cc.handleSetOption(ctx, data)
+
 	case mysql.ComStmtFetch:
+		/*0x1c Fetch rows from a existing resultset after a COM_STMT_EXECUTE.*/
 		return cc.handleStmtFetch(ctx, data)
-	// ComDaemon, ComBinlogDumpGtid
+
+	// TODO ComDaemon, ComBinlogDumpGtid
 	case mysql.ComResetConnection:
+		/*0x1f 重置连接，不会重新验证登录*/
 		return cc.handleResetConnection(ctx)
-	// ComEnd
+	// TODO ComEnd
 	default:
 		return mysql.NewErrf(mysql.ErrUnknown, "command %d not supported now", nil, cmd)
 	}
@@ -1435,20 +1491,26 @@ func (cc *clientConn) handleIndexAdvise(ctx context.Context, indexAdviseInfo *ex
 	return nil
 }
 
-// handleQuery executes the sql query string and writes result set or result ok to the client.
+// handleQuery executes the sql query string and writes result set or result ok to the client. /*SQL QUERY的执行处理函数*/
 // As the execution time of this function represents the performance of TiDB, we do time log and metrics here.
 // There is a special query `load data` that does not return result, which is handled differently.
 // Query `load stats` does not return result either.
+/*此函数的执行代表了tidb的性能，因此这里添加time log 和 metrics ，如果是加载数据和状态并不会返回结果，起处理方式不一样*/
 func (cc *clientConn) handleQuery(ctx context.Context, sql string) (err error) {
 	defer trace.StartRegion(ctx, "handleQuery").End()
 	sc := cc.ctx.GetSessionVars().StmtCtx
 	prevWarns := sc.GetWarnings()
+
+	/*！！！进行SQL语句的解析，转化为sqlNode*/
+	/*底层执行的是session.parse函数*/
 	stmts, err := cc.ctx.Parse(ctx, sql)
+
 	if err != nil {
 		metrics.ExecuteErrorCounter.WithLabelValues(metrics.ExecuteErrorToLabel(err)).Inc()
 		return err
 	}
 
+	/*如果是空节点就直接返回*/
 	if len(stmts) == 0 {
 		return cc.writeOK(ctx)
 	}
@@ -1460,7 +1522,8 @@ func (cc *clientConn) handleQuery(ctx context.Context, sql string) (err error) {
 	if len(stmts) > 1 {
 
 		// The client gets to choose if it allows multi-statements, and
-		// probably defaults OFF. This helps prevent against SQL injection attacks
+		// probably defaults OFF. client可以选择是否允许使用多语句，或是默认不支持
+		// This helps prevent against SQL injection attacks
 		// by early terminating the first statement, and then running an entirely
 		// new statement.
 
@@ -1475,6 +1538,7 @@ func (cc *clientConn) handleQuery(ctx context.Context, sql string) (err error) {
 				return err
 			case variable.OnInt:
 				// multi statement is fully permitted, do nothing
+				/*允许使用多语句执行，不做任何事情*/
 			default:
 				warn := stmtctx.SQLWarn{Level: stmtctx.WarnLevelWarning, Err: errMultiStatementDisabled}
 				parserWarns = append(parserWarns, warn)
@@ -1482,21 +1546,28 @@ func (cc *clientConn) handleQuery(ctx context.Context, sql string) (err error) {
 		}
 
 		// Only pre-build point plans for multi-statement query
+		/*多语句执行的构建*/
 		pointPlans, err = cc.prefetchPointPlanKeys(ctx, stmts)
 		if err != nil {
 			return err
 		}
 	}
+
 	if len(pointPlans) > 0 {
 		defer cc.ctx.ClearValue(plannercore.PointPlanKey)
 	}
 	var retryable bool
-	for i, stmt := range stmts {
+
+	/*处理每个节点信息，之前是直接调用execute函数*/
+	for i, stmt := range stmts {/*遍历每个sqlNode*/
 		if len(pointPlans) > 0 {
 			// Save the point plan in Session so we don't need to build the point plan again.
 			cc.ctx.SetValue(plannercore.PointPlanKey, plannercore.PointPlanVal{Plan: pointPlans[i]})
 		}
+
+		/*！！！处理每个节点*/
 		retryable, err = cc.handleStmt(ctx, stmt, parserWarns, i == len(stmts)-1)
+
 		if err != nil {
 			_, allowTiFlashFallback := cc.ctx.GetSessionVars().AllowFallbackToTiKV[kv.TiFlash]
 			if allowTiFlashFallback && errors.ErrorEqual(err, tikv.ErrTiFlashServerTimeout) && retryable {
@@ -1620,9 +1691,12 @@ func (cc *clientConn) prefetchPointPlanKeys(ctx context.Context, stmts []ast.Stm
 
 // The first return value indicates whether the call of handleStmt has no side effect and can be retried.
 // Currently the first return value is used to fallback to TiKV when TiFlash is down.
+/*SQL Node处理函数*/
 func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns []stmtctx.SQLWarn, lastStmt bool) (bool, error) {
 	ctx = context.WithValue(ctx, execdetails.StmtExecDetailKey, &execdetails.StmtExecDetails{})
 	reg := trace.StartRegion(ctx, "ExecuteStmt")
+
+	/*！！！执行，返回结果数据*/
 	rs, err := cc.ctx.ExecuteStmt(ctx, stmt)
 	reg.End()
 	// The session tracker detachment from global tracker is solved in the `rs.Close` in most cases.
@@ -1634,12 +1708,13 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 		return true, err
 	}
 
+	/*是否是最后节点*/
 	if lastStmt {
 		cc.ctx.GetSessionVars().StmtCtx.AppendWarnings(warns)
 	}
 
 	status := cc.ctx.Status()
-	if !lastStmt {
+	if !lastStmt {/*如果不是*/
 		status |= mysql.ServerMoreResultsExists
 	}
 
@@ -1649,11 +1724,13 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 			return false, executor.ErrQueryInterrupted
 		}
 
+		/*！！！将读取的数据写入结果集中去*/
 		retryable, err := cc.writeResultset(ctx, rs, false, status, 0)
 		if err != nil {
 			return retryable, err
 		}
 	} else {
+		/*rs==nil 便是该查询是特殊查询*/
 		handled, err := cc.handleQuerySpecial(ctx, status)
 		if handled {
 			execStmt := cc.ctx.Value(session.ExecStmtVarKey)
@@ -1668,6 +1745,7 @@ func (cc *clientConn) handleStmt(ctx context.Context, stmt ast.StmtNode, warns [
 	return false, nil
 }
 
+/*处理特殊的query查询*/
 func (cc *clientConn) handleQuerySpecial(ctx context.Context, status uint16) (bool, error) {
 	handled := false
 	loadDataInfo := cc.ctx.Value(executor.LoadDataVarKey)
@@ -1856,6 +1934,7 @@ func (cc *clientConn) writeChunks(ctx context.Context, rs ResultSet, binary bool
 // binary specifies the way to dump data. It throws any error while dumping data.
 // serverStatus, a flag bit represents server information.
 // fetchSize, the desired number of rows to be fetched each time when client uses cursor.
+/*实现结果集写入的具体细节*/
 func (cc *clientConn) writeChunksWithFetchSize(ctx context.Context, rs ResultSet, serverStatus uint16, fetchSize int) error {
 	fetchedRows := rs.GetFetchedRows()
 

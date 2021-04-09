@@ -14,7 +14,7 @@
 package arena
 
 // Allocator pre-allocates memory to reduce memory allocation cost.
-// It is not thread-safe.
+// It is not thread-safe. 不是线程安全的
 type Allocator interface {
 	// Alloc allocates memory with 0 len and capacity cap.
 	Alloc(capacity int) []byte

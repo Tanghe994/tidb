@@ -28,6 +28,7 @@ import (
 )
 
 // Context is an interface for transaction and executive args environment.
+/*是事务和执行程序参数环境的接口*/
 type Context interface {
 	// NewTxn creates a new transaction for further execution.
 	// If old transaction is valid, it is committed first.

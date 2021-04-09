@@ -169,7 +169,7 @@ type SessionManager interface {
 }
 
 // GlobalConnID is the global connection ID, providing UNIQUE connection IDs across the whole TiDB cluster.
-// 64 bits version:
+// 64 bits version:提供集群中全局唯一的连接ID
 //  63 62                 41 40                                   1   0
 // +--+---------------------+--------------------------------------+------+
 // |  |      serverId       |             local connId             |markup|
@@ -185,7 +185,7 @@ type GlobalConnID struct {
 	ServerID       uint64
 	LocalConnID    uint64
 	Is64bits       bool
-	ServerIDGetter func() uint64
+	ServerIDGetter func() uint64	//获得server的全局ID
 }
 
 const (

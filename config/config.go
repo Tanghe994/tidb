@@ -82,6 +82,7 @@ var (
 )
 
 // Config contains configuration options.
+/*所有的嗯配置信息选项*/
 type Config struct {
 	Host             string `toml:"host" json:"host"`
 	AdvertiseAddress string `toml:"advertise-address" json:"advertise-address"`
@@ -143,6 +144,7 @@ type Config struct {
 	// IsolationRead indicates that the TiDB reads data from which isolation level(engine and label).
 	IsolationRead IsolationRead `toml:"isolation-read" json:"isolation-read"`
 	// MaxServerConnections is the maximum permitted number of simultaneous client connections.
+	/*server最大的连接数量设置*/
 	MaxServerConnections uint32 `toml:"max-server-connections" json:"max-server-connections"`
 	// NewCollationsEnabledOnFirstBootstrap indicates if the new collations are enabled, it effects only when a TiDB cluster bootstrapped on the first time.
 	NewCollationsEnabledOnFirstBootstrap bool `toml:"new_collations_enabled_on_first_bootstrap" json:"new_collations_enabled_on_first_bootstrap"`
@@ -351,6 +353,7 @@ const (
 )
 
 // Security is the security section of the config.
+/*负责配置安全的功能*/
 type Security struct {
 	SkipGrantTable         bool     `toml:"skip-grant-table" json:"skip-grant-table"`
 	SSLCA                  string   `toml:"ssl-ca" json:"ssl-ca"`
@@ -477,6 +480,7 @@ type ProxyProtocol struct {
 }
 
 // Binlog is the config for binlog.
+/*二进制日志的配置*/
 type Binlog struct {
 	Enable bool `toml:"enable" json:"enable"`
 	// If IgnoreError is true, when writing binlog meets error, TiDB would
@@ -678,6 +682,7 @@ var (
 )
 
 // NewConfig creates a new config instance with default value.
+/*创建默认的配置信息*/
 func NewConfig() *Config {
 	conf := defaultConf
 	return &conf
@@ -686,11 +691,13 @@ func NewConfig() *Config {
 // GetGlobalConfig returns the global configuration for this server.
 // It should store configuration from command line and configuration file.
 // Other parts of the system can read the global configuration use this function.
+/*可以存储命令行或者配置文件中的配置信息，可以通过函数获取全局配置信息*/
 func GetGlobalConfig() *Config {
 	return globalConf.Load().(*Config)
 }
 
 // StoreGlobalConfig stores a new config to the globalConf. It mostly uses in the test to avoid some data races.
+/*将新的配置信息存储发哦全局变量中，主要用于测试使用*/
 func StoreGlobalConfig(config *Config) {
 	globalConf.Store(config)
 	cfg := *config.getTiKVConfig()

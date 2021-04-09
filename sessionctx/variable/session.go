@@ -415,7 +415,7 @@ type SessionVars struct {
 	// Status stands for the session status. e.g. in transaction or not, auto commit is on or off, and so on.
 	Status uint16
 
-	// ClientCapability is client's capability.
+	// ClientCapability is client's capability. client的cap
 	ClientCapability uint32
 
 	// TLSConnectionState is the TLS connection state (nil if not using TLS).
@@ -468,7 +468,7 @@ type SessionVars struct {
 	// LastFoundRows is the number of found rows of last query statement
 	LastFoundRows uint64
 
-	// StmtCtx holds variables for current executing statement.
+	// StmtCtx holds variables for current executing statement. 保存当前执行语句的变量
 	StmtCtx *stmtctx.StatementContext
 
 	// AllowAggPushDown can be set to false to forbid aggregation push down.

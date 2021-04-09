@@ -39,7 +39,7 @@ func Register(name string, driver kv.Driver) error {
 }
 
 // New creates a kv Storage with path.
-//
+// 创建给定路径的kv存储引擎
 // The path must be a URL format 'engine://path?params' like the one for
 // session.Open() but with the dbname cut off.
 // Examples:

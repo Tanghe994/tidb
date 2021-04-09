@@ -71,7 +71,7 @@ import (
 	"google.golang.org/grpc/grpclog"
 )
 
-// Flag Names
+// Flag Names 标志名称
 const (
 	nmVersion                = "V"
 	nmConfig                 = "config"
@@ -157,13 +157,22 @@ var (
 )
 
 func main() {
+	// 返回在系统中注册的flag，必须在所有的flag都注册好而未访问其值时执行，未注册会返回err
 	flag.Parse()
+
+	/*默认是false*/
 	if *version {
 		fmt.Println(printer.GetTiDBInfo())
 		os.Exit(0)
 	}
+
+	/*注册存储引擎*/
 	registerStores()
+
+	/*注册指标*/
 	registerMetrics()
+
+	/*初始化配置信息*/
 	config.InitializeConfig(*configPath, *configCheck, *configStrict, overrideConfig)
 	if config.GetGlobalConfig().OOMUseTmpStorage {
 		config.GetGlobalConfig().UpdateTempStoragePath()
@@ -171,22 +180,40 @@ func main() {
 		terror.MustNil(err)
 		checkTempStorageQuota()
 	}
+
+	/*设置全局变量*/
 	setGlobalVars()
+	/*设置CPU*/
 	setCPUAffinity()
+	/*设置日志*/
 	setupLog()
+	/*设置堆文件跟踪器*/
 	setHeapProfileTracker()
+	/*设置追踪*/
 	setupTracing() // Should before createServer and after setup config.
+	/*打印tidb的信息*/
 	printInfo()
+	/*设置二进制日志客户端*/
 	setupBinlogClient()
+	/*设置指标*/
 	setupMetrics()
+	/*创建存储和抽象域，抽象域可以理解为一个抽象的存储空间，可以在其中创建数据库和数据表，不通的域之间可以存在相同名称的数据库*/
 	createStoreAndDomain()
+	/*创建服务器*/
 	createServer()
+	/*设置信号处理程序，参数是一个bool类型的处理函数*/
 	signal.SetupSignalHandler(serverShutdown)
+
+	/*启动服务器*/
 	runServer()
+
+	/*清除*/
 	cleanup()
+	/*同步日志*/
 	syncLog()
 }
 
+/*程序以给出的状态码退出，状态码o表示成功，非0表示出错，程序会立即终止*/
 func exit() {
 	syncLog()
 	os.Exit(0)
@@ -199,6 +226,7 @@ func syncLog() {
 	}
 }
 
+/*检查临时存储指标*/
 func checkTempStorageQuota() {
 	// check capacity and the quota when OOMUseTmpStorage is enabled
 	c := config.GetGlobalConfig()
@@ -214,6 +242,7 @@ func checkTempStorageQuota() {
 	}
 }
 
+/*设置CPU*/
 func setCPUAffinity() {
 	if affinityCPU == nil || len(*affinityCPU) == 0 {
 		return
@@ -239,12 +268,14 @@ func setCPUAffinity() {
 	metrics.MaxProcs.Set(float64(runtime.GOMAXPROCS(0)))
 }
 
+/*设置堆配置文件追踪器*/
 func setHeapProfileTracker() {
 	c := config.GetGlobalConfig()
 	d := parseDuration(c.Performance.MemProfileInterval)
 	go profile.HeapProfileForGlobalMemTracker(d)
 }
 
+/*在里可以添加其它的kv数据库*/
 func registerStores() {
 	err := kvstore.Register("tikv", driver.TiKVDriver{})
 	terror.MustNil(err)
@@ -254,10 +285,12 @@ func registerStores() {
 	terror.MustNil(err)
 }
 
+/*注册指标*/
 func registerMetrics() {
 	metrics.RegisterMetrics()
 }
 
+/*创建存储引擎和工作空间*/
 func createStoreAndDomain() {
 	cfg := config.GetGlobalConfig()
 	fullPath := fmt.Sprintf("%s://%s", cfg.Store, cfg.Path)
@@ -269,6 +302,7 @@ func createStoreAndDomain() {
 	terror.MustNil(err)
 }
 
+/*设置二进制文件客户端*/
 func setupBinlogClient() {
 	cfg := config.GetGlobalConfig()
 	if !cfg.Binlog.Enable {
@@ -283,21 +317,25 @@ func setupBinlogClient() {
 		client *pumpcli.PumpsClient
 		err    error
 	)
-
+	/*CA机构path、证书path、key path*/
 	securityOption := pd.SecurityOption{
 		CAPath:   cfg.Security.ClusterSSLCA,
 		CertPath: cfg.Security.ClusterSSLCert,
 		KeyPath:  cfg.Security.ClusterSSLKey,
 	}
 
+	/*套接字信息，使用套接字文件编写二进制日志文件*/
 	if len(cfg.Binlog.BinlogSocket) == 0 {
+		/*创建新的*/
 		client, err = pumpcli.NewPumpsClient(cfg.Path, cfg.Binlog.Strategy, parseDuration(cfg.Binlog.WriteTimeout), securityOption)
 	} else {
 		client, err = pumpcli.NewLocalPumpsClient(cfg.Path, cfg.Binlog.BinlogSocket, parseDuration(cfg.Binlog.WriteTimeout), securityOption)
 	}
 
+	/*如果err不为nil，将err清理并重置*/
 	terror.MustNil(err)
 
+	/*初始化*/
 	err = pumpcli.InitLogger(cfg.Log.ToLogConfig())
 	terror.MustNil(err)
 
@@ -308,7 +346,7 @@ func setupBinlogClient() {
 // Prometheus push.
 const zeroDuration = time.Duration(0)
 
-// pushMetric pushes metrics in background.
+// pushMetric pushes metrics in background. 取指标
 func pushMetric(addr string, interval time.Duration) {
 	if interval == zeroDuration || len(addr) == 0 {
 		log.Info("disable Prometheus push client")
@@ -364,7 +402,7 @@ func flagBoolean(name string, defaultVal bool, usage string) *bool {
 	return flag.Bool(name, defaultVal, usage)
 }
 
-// overrideConfig considers command arguments and overrides some config items in the Config.
+// overrideConfig considers command arguments and overrides some config items in the Config.重写部分配置信息
 func overrideConfig(cfg *config.Config) {
 	actualFlags := make(map[string]bool)
 	flag.Visit(func(f *flag.Flag) {
@@ -479,6 +517,7 @@ func overrideConfig(cfg *config.Config) {
 	}
 }
 
+/*设置全局变量*/
 func setGlobalVars() {
 	cfg := config.GetGlobalConfig()
 
@@ -570,6 +609,7 @@ func setGlobalVars() {
 	parsertypes.TiDBStrictIntegerDisplayWidth = config.GetGlobalConfig().DeprecateIntegerDisplayWidth
 }
 
+/*设置日志*/
 func setupLog() {
 	cfg := config.GetGlobalConfig()
 	err := logutil.InitZapLogger(cfg.Log.ToLogConfig())
@@ -587,6 +627,7 @@ func setupLog() {
 	util.InternalHTTPClient()
 }
 
+/*输出tidb的信息*/
 func printInfo() {
 	// Make sure the TiDB info is always printed.
 	level := log.GetLevel()
@@ -595,6 +636,7 @@ func printInfo() {
 	log.SetLevel(level)
 }
 
+/*创建服务器*/
 func createServer() {
 	cfg := config.GetGlobalConfig()
 	driver := server.NewTiDBDriver(storage)
@@ -608,13 +650,18 @@ func createServer() {
 	dom.InfoSyncer().SetSessionManager(svr)
 }
 
+/*服务器关闭处理程序*/
 func serverShutdown(isgraceful bool) {
 	if isgraceful {
+		/*默认是false，如果需要关闭服务器，这里重置为真*/
 		graceful = true
 	}
+
+	/*关闭服务器程序*/
 	svr.Close()
 }
 
+/*设置指标*/
 func setupMetrics() {
 	cfg := config.GetGlobalConfig()
 	// Enable the mutex profile, 1/10 of mutex blocking event sampling.
@@ -636,6 +683,7 @@ func setupMetrics() {
 	pushMetric(cfg.Status.MetricsAddr, time.Duration(cfg.Status.MetricsInterval)*time.Second)
 }
 
+/*设置追踪器*/
 func setupTracing() {
 	cfg := config.GetGlobalConfig()
 	tracingCfg := cfg.OpenTracing.ToTracingConfig()
@@ -646,12 +694,13 @@ func setupTracing() {
 	}
 	opentracing.SetGlobalTracer(tracer)
 }
-
+/*启动服务器*/
 func runServer() {
+	/*!!!!!启动server*/
 	err := svr.Run()
 	terror.MustNil(err)
 }
-
+/*关闭工作域和存储*/
 func closeDomainAndStorage() {
 	atomic.StoreUint32(&tikv.ShuttingDown, 1)
 	dom.Close()
@@ -659,6 +708,7 @@ func closeDomainAndStorage() {
 	terror.Log(errors.Trace(err))
 }
 
+/*清理*/
 func cleanup() {
 	if graceful {
 		svr.GracefulDown(context.Background(), nil)
@@ -670,6 +720,7 @@ func cleanup() {
 	disk.CleanUp()
 }
 
+/*讲字符串转换为一个列表*/
 func stringToList(repairString string) []string {
 	if len(repairString) <= 0 {
 		return []string{}

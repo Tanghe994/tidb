@@ -349,7 +349,7 @@ func BgLogger() *zap.Logger {
 	return zaplog.L()
 }
 
-// WithConnID attaches connId to context.
+// WithConnID attaches connId to context. 将connID添加
 func WithConnID(ctx context.Context, connID uint64) context.Context {
 	var logger *zap.Logger
 	if ctxLogger, ok := ctx.Value(ctxLogKey).(*zap.Logger); ok {

@@ -110,6 +110,7 @@ var gcVariableMap = map[string]string{
 }
 
 // Session context, it is consistent with the lifecycle of a client connection.
+/*每次会话的上下文内容，与客户端连接的生命周期是一致的*/
 type Session interface {
 	sessionctx.Context
 	Status() uint16       // Flag of current status, such as autocommit.
@@ -178,27 +179,28 @@ func (h *StmtHistory) Count() int {
 	return len(h.history)
 }
 
+/*session 实现了两个大的接口，一个是Session还有一个是Context*/
 type session struct {
 	// processInfo is used by ShowProcess(), and should be modified atomically.
 	processInfo atomic.Value
-	txn         TxnState
+	txn         TxnState	/*提供新的kv事务*/
 
-	mu struct {
+	mu struct {		/*锁*/
 		sync.RWMutex
 		values map[fmt.Stringer]interface{}
 	}
 
 	currentCtx  context.Context // only use for runtime.trace, Please NEVER use it.
-	currentPlan plannercore.Plan
+	currentPlan plannercore.Plan	/*对执行计划流程的描述*/
 
-	store kv.Storage
+	store kv.Storage				/*存储引擎这里使用的是tikv*/
 
 	parser *parser.Parser
 
 	preparedPlanCache *kvcache.SimpleLRUCache
 
-	sessionVars    *variable.SessionVars
-	sessionManager util.SessionManager
+	sessionVars    *variable.SessionVars	/*将在当前会话中处理用户定义的变量或全局变量*/
+	sessionManager util.SessionManager		/*用于session管理*/
 
 	statsCollector *handle.SessionStatsCollector
 	// ddlOwnerChecker is used in `select tidb_is_ddl_owner()` statement;
@@ -212,7 +214,7 @@ type session struct {
 	mppClient kv.MPPClient
 
 	// indexUsageCollector collects index usage information.
-	idxUsageCollector *handle.SessionIndexUsageCollector
+	idxUsageCollector *handle.SessionIndexUsageCollector	/*搜集索引的使用信息*/
 }
 
 // AddTableLock adds table lock to the session lock map.
@@ -1069,6 +1071,7 @@ func (s *session) getTiDBTableValue(name, val string) (string, error) {
 	return validatedVal, nil
 }
 
+/*具体的处理细节*/
 func (s *session) ParseSQL(ctx context.Context, sql, charset, collation string) ([]ast.StmtNode, []error, error) {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("session.ParseSQL", opentracing.ChildOf(span.Context()))
@@ -1077,6 +1080,8 @@ func (s *session) ParseSQL(ctx context.Context, sql, charset, collation string) 
 	defer trace.StartRegion(ctx, "ParseSQL").End()
 	s.parser.SetSQLMode(s.sessionVars.SQLMode)
 	s.parser.SetParserConfig(s.sessionVars.BuildParserConfig())
+	/*处理parser*/
+	/*Lexer & Yacc,这两个组件共同构成了 Parser 模块，调用 Parser，可以将文本解析成结构化数据，也就是抽象语法树 （AST）：*/
 	return s.parser.Parse(sql, charset, collation)
 }
 
@@ -1174,7 +1179,7 @@ func (s *session) ExecuteInternal(ctx context.Context, sql string, args ...inter
 	return rs, err
 }
 
-// Execute is deprecated, we can remove it as soon as plugins are migrated.
+// Execute is deprecated, we can remove it as soon as plugins are migrated.已经启用
 func (s *session) Execute(ctx context.Context, sql string) (recordSets []sqlexec.RecordSet, err error) {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("session.Execute", opentracing.ChildOf(span.Context()))
@@ -1202,10 +1207,14 @@ func (s *session) Execute(ctx context.Context, sql string) (recordSets []sqlexec
 }
 
 // Parse parses a query string to raw ast.StmtNode.
+/*将原始的字符串解析为原始的ast.StmtNode*/
 func (s *session) Parse(ctx context.Context, sql string) ([]ast.StmtNode, error) {
 	charsetInfo, collation := s.sessionVars.GetCharsetInfo()
 	parseStartTime := time.Now()
+
+	/*具体的处理细节*/
 	stmts, warns, err := s.ParseSQL(ctx, sql, charsetInfo, collation)
+
 	if err != nil {
 		s.rollbackOnError(ctx)
 
@@ -1377,6 +1386,7 @@ func (s *session) ExecRestrictedStmt(ctx context.Context, stmtNode ast.StmtNode,
 	return rows, rs.Fields(), err
 }
 
+/*实现了session接口，执行相关的Node处理*/
 func (s *session) ExecuteStmt(ctx context.Context, stmtNode ast.StmtNode) (sqlexec.RecordSet, error) {
 	if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
 		span1 := span.Tracer().StartSpan("session.ExecuteStmt", opentracing.ChildOf(span.Context()))

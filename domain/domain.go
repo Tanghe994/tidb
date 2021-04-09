@@ -1346,6 +1346,7 @@ func (do *Domain) ServerID() uint64 {
 }
 
 // IsLostConnectionToPD indicates lost connection to PD or not.
+/*表示是否与PD连接或者关闭*/
 func (do *Domain) IsLostConnectionToPD() bool {
 	return do.isLostConnectionToPD.Get() != 0
 }

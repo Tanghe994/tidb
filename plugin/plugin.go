@@ -398,6 +398,7 @@ func Get(kind Kind, name string) *Plugin {
 }
 
 // ForeachPlugin loops all ready plugins.
+/*遍历所有可用的插件*/
 func ForeachPlugin(kind Kind, fn func(plugin *Plugin) error) error {
 	plugins := pluginGlobal.plugins()
 	if plugins == nil {
@@ -420,6 +421,7 @@ func ForeachPlugin(kind Kind, fn func(plugin *Plugin) error) error {
 }
 
 // IsEnable checks plugin's enable state.
+/*查看插件的启用状态*/
 func IsEnable(kind Kind) bool {
 	plugins := pluginGlobal.plugins()
 	if plugins == nil {
